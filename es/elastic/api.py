@@ -88,8 +88,8 @@ class Cursor(BaseCursor):
     def __init__(self, url: str, es: Elasticsearch, **kwargs: Any) -> None:
         super().__init__(url, es, **kwargs)
         cluster_info = self.es.info()
-        cluster_version = version.parse(cluster_info["version"]["number"])
-        if cluster_version < version.parse("7.0.0"):
+        self.cluster_version = version.parse(cluster_info["version"]["number"])
+        if self.cluster_version < version.parse("7.0.0"):
             self.sql_path = "_xpack/sql"
         else:
             self.sql_path = kwargs.get("sql_path") or "_sql"
@@ -138,9 +138,7 @@ class Cursor(BaseCursor):
 
     def get_valid_table_names(self) -> "Cursor":
         # Get the ES cluster version. Since 7.10 the table column name changed #52
-        cluster_info = self.es.info()
-        cluster_version = version.parse(cluster_info["version"]["number"])
-        if cluster_version >= version.parse("7.10.0"):
+        if self.cluster_version >= version.parse("7.10.0"):
             return self.get_valid_table_view_names("TABLE")
         return self.get_valid_table_view_names("BASE TABLE")
 
@@ -179,7 +177,6 @@ class Cursor(BaseCursor):
         This is useful since arrays are not supported by ES SQL
         """
         array_columns: List[Tuple[Any, ...]] = []
-        print(table_name)
         try:
             response = self.es.search(index=table_name, size=1)
         except es_exceptions.ConnectionError as e:
@@ -189,10 +186,16 @@ class Cursor(BaseCursor):
         except es_exceptions.NotFoundError as e:
             raise exceptions.ProgrammingError(f"Error ({e.error}): {e.info}")
         try:
-            if response["hits"]["total"]["value"] == 0:
-                source = {}
+            if self.cluster_version < version.parse('7.0.0'):
+                if response["hits"]["total"] == 0:
+                    source = {}
+                else:
+                    source = response["hits"]["hits"][0]["_source"]
             else:
-                source = response["hits"]["hits"][0]["_source"]
+                if response["hits"]["total"]["value"] == 0:
+                    source = {}
+                else:
+                    source = response["hits"]["hits"][0]["_source"]
         except KeyError as e:
             raise exceptions.DataError(
                 f"Error inferring array type columns {self.url}: {e}"
