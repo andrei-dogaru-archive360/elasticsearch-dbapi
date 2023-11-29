@@ -179,6 +179,7 @@ class Cursor(BaseCursor):
         This is useful since arrays are not supported by ES SQL
         """
         array_columns: List[Tuple[Any, ...]] = []
+        print(table_name)
         try:
             response = self.es.search(index=table_name, size=1)
         except es_exceptions.ConnectionError as e:
