@@ -87,7 +87,12 @@ class Cursor(BaseCursor):
 
     def __init__(self, url: str, es: Elasticsearch, **kwargs: Any) -> None:
         super().__init__(url, es, **kwargs)
-        self.sql_path = kwargs.get("sql_path") or "_sql"
+        cluster_info = self.es.info()
+        cluster_version = version.parse(cluster_info["version"]["number"])
+        if cluster_version < version.parse("7.0.0"):
+            self.sql_path = "_xpack/sql"
+        else:
+            self.sql_path = kwargs.get("sql_path") or "_sql"
 
     def _get_value_for_col_name(self, row: Tuple[Any], name: str) -> Any:
         """
