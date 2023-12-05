@@ -326,9 +326,10 @@ class BaseCursor:
         """
         # Sanitize query
         query = self.sanitize_query(query)
-        (query, limit, offset) = self.extract_pagination(query)
+        (query_clean, limit, offset) = self.extract_pagination(query)
         page = offset // limit
-        payload = {"query": query, "fetch_size": limit}
+        print(query_clean)
+        payload = {"query": query_clean, "fetch_size": limit}
         if self.time_zone is not None:
             payload["time_zone"] = self.time_zone
         path = f"/{self.sql_path}/"
