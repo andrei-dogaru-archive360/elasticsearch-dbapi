@@ -5,6 +5,7 @@ from urllib import parse
 from elasticsearch import Elasticsearch
 from elasticsearch import exceptions as es_exceptions
 from es import exceptions
+import re
 
 
 from .const import DEFAULT_FETCH_SIZE, DEFAULT_SCHEMA, DEFAULT_SQL_PATH
@@ -302,15 +303,32 @@ class BaseCursor:
         """
         return query.replace(f'FROM "{DEFAULT_SCHEMA}".', "FROM ")
 
+    def extract_pagination(self, query: str) -> Tuple[str, int, int]:
+        """
+        Extracts the pagination details from the query
+        """
+        limit_regex = r'LIMIT\s+([1-9][0-9]*)'
+        limit_search = re.search(limit_regex, query)
+        limit = int(limit_search.group(
+            1)) if limit_search is not None else self.fetch_size
+
+        offset_regex = r'OFFSET\s+([1-9][0-9]*)'
+        offset_search = re.search(offset_regex, query)
+        offset = int(offset_search.group(1)) if offset_search is not None else 0
+
+        sanitized_query = re.sub(limit_regex, "", query)
+        sanitized_query = re.sub(offset_regex, "", sanitized_query)
+        return (query, limit, offset)
+
     def elastic_query(self, query: str) -> Dict[str, Any]:
         """
         Request an http SQL query to elasticsearch
         """
         # Sanitize query
         query = self.sanitize_query(query)
-        payload = {"query": query}
-        if self.fetch_size is not None:
-            payload["fetch_size"] = self.fetch_size
+        (query, limit, offset) = self.extract_pagination(query)
+        page = offset // limit
+        payload = {"query": query, "fetch_size": limit}
         if self.time_zone is not None:
             payload["time_zone"] = self.time_zone
         path = f"/{self.sql_path}/"
@@ -329,6 +347,30 @@ class BaseCursor:
             raise exceptions.ProgrammingError(
                 f"({response['error']['reason']}): {response['error']['details']}"
             )
+        if page > 0:
+            columns = response["columns"]
+            while page > 0:
+                cursor = response["cursor"]
+                payload_pagination = {"cursor": cursor}
+                try:
+                    response = self.es.transport.perform_request(
+                        "POST", path, body=payload_pagination)
+                except es_exceptions.ConnectionError:
+                    raise exceptions.OperationalError("Error connecting to Elasticsearch")
+                except es_exceptions.RequestError as ex:
+                    raise exceptions.ProgrammingError(f"Error ({ex.error}): {ex.info}")
+                # When method is HEAD and code is 404 perform request returns True
+                # So response is Union[bool, Any]
+                if isinstance(response, bool):
+                    raise exceptions.UnexpectedRequestResponse()
+                # Opendistro errors are http status 200
+                if "error" in response:
+                    raise exceptions.ProgrammingError(
+                        f"({response['error']['reason']}): {response['error']['details']}"
+                    )
+                page -= 1
+            response["columns"] = columns
+
         return response
 
 
