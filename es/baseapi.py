@@ -318,7 +318,7 @@ class BaseCursor:
 
         sanitized_query = re.sub(limit_regex, "", query)
         sanitized_query = re.sub(offset_regex, "", sanitized_query)
-        return (query, limit, offset)
+        return (sanitized_query, limit, offset)
 
     def elastic_query(self, query: str) -> Dict[str, Any]:
         """
