@@ -350,7 +350,9 @@ class BaseCursor:
         if page > 0:
             columns = response["columns"]
             while page > 0:
-                cursor = response["cursor"]
+                cursor = response.get("cursor", None)
+                if cursor is None:
+                    break
                 payload_pagination = {"cursor": cursor}
                 try:
                     response = self.es.transport.perform_request(
